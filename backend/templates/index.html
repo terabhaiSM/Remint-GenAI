@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Video Generator</title>
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        .container {
+            margin-top: 50px;
+        }
+        .video-preview {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center">Mental Health Video Generator</h1>
+        <form method="post" class="mt-4">
+            <div class="form-group">
+                <input type="text" class="form-control" name="topic" placeholder="Enter a mental health topic" required>
+            </div>
+            <div class="form-group">
+                <textarea class="form-control" name="description" rows="3" placeholder="Enter description (Optional)"></textarea>
+            </div>
+            <div class="form-group">
+                <input type="url" class="form-control" name="description_url" placeholder="Enter description URL (Optional)">
+            </div>
+            <div class="form-group">
+                <select name="flavor" class="form-control">
+                    <option value="Meme">Meme</option>
+                    <option value="Advanced Insights">Advanced Insights</option>
+                    <option value="Warning">Warning</option>
+                    <option value="Informational">Informational</option>
+                    <option value="Psychoeducation">Psychoeducation</option>
+                    <option value="Shock Value">Shock Value</option>
+                    <option value="Virality">Virality</option>
+                    <option value="Negative News">Negative News</option>
+                    <option value="Positive News">Positive News</option>
+                    
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Generate Video</button>
+        </form>
+        <!-- Div to show video preview -->
+        <div id="video-preview" class="video-preview"></div>
+    </div>
+    <!-- Bootstrap JS and dependencies -->
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.7.0/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</body>
+</html>
