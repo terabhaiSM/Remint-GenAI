@@ -9,12 +9,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 api_key = os.getenv('OPENAI_API_KEY')
+print(api_key)
 
-def extract_content_from_pdf(pdf_path):
+def extract_content_from_pdf(pdf_path, question):
     documents = SimpleDirectoryReader(pdf_path).load_data()
     index = VectorStoreIndex(documents)
     query_engine = index.as_query_engine()
-    response = query_engine.query("What is the summary of paper?")
+    response = query_engine.query(question)
     return response
 
 def main():

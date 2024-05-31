@@ -53,6 +53,20 @@ def index():
         except Exception as e:
             return jsonify({"success": False, "error": str(e)})
 
+# @app.route('/pdf-gen', methods=['POST'])
+# def index():
+#         data = request.form
+#         topic = data.get('topic')
+#         pdf = request.files.get('pdf')
+#         print(topic, pdf)
+        
+#         # Assuming video_details is a dictionary with the expected keys
+#         try:
+#             video_details = generate_video(topic, pdf, flavor, description, description_url)
+#             return jsonify({"success": True, "video_path": video_details})
+#         except Exception as e:
+#             return jsonify({"success": False, "error": str(e)})
+
 
 def save_image_from_url(image_url, save_path):
     """
