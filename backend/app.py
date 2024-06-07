@@ -1,7 +1,13 @@
 from flask import Flask, render_template, request, jsonify
 from openai import OpenAI
 import openai
-from moviepy.editor import ImageSequenceClip, CompositeVideoClip, AudioFileClip
+from moviepy.editor import (
+    ImageSequenceClip,
+    CompositeVideoClip,
+    AudioFileClip,
+    VideoFileClip,
+    concatenate_videoclips,
+)
 from gtts import gTTS
 import os
 import json
@@ -10,62 +16,72 @@ from llama import extract_content_from_pdf
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
-#from llama_index.core.tools import QueryEngineTool
-#from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, StorageContext, load_index_from_storage
+from generateClip import generate_clip
+import cv2
+import numpy as np
+import whisper
+# from llama_index.core.tools import QueryEngineTool
+# from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, StorageContext, load_index_from_storage
 
-app = Flask(__name__, static_folder='../build', static_url_path='/')
+app = Flask(__name__, static_folder="../build", static_url_path="/")
 CORS(app)
 
 # Load environment variables from .env file
 load_dotenv()
 
-openai.api_key = os.getenv('OPENAI_API_KEY')
+openai.api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI()
 
-UPLOAD_FOLDER = 'uploads'
-ALLOWED_EXTENSIONS = {'pdf'}
+UPLOAD_FOLDER = "uploads"
+ALLOWED_EXTENSIONS = {"pdf"}
 
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+
 
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
 
 def fetch_summary(pdf_path):
-        print(pdf_path)
-        summary = extract_content_from_pdf("uploads")
-        print(summary)
-        return summary
-    
-@app.route('/', methods=['POST'])
-def index():
-        data = request.form
-        topic = data.get('topic')
-        flavor = data.get('flavor')
-        description = data.get('description')
-        description_url = data.get('description_url')
-        pdf = request.files.get('pdf')
-        print(topic, flavor, description, description_url, pdf)
-        
-        # Assuming video_details is a dictionary with the expected keys
-        try:
-            video_details = generate_video(topic, pdf, flavor, description, description_url)
-            return jsonify({"success": True, "video_path": video_details})
-        except Exception as e:
-            return jsonify({"success": False, "error": str(e)})
+    print(pdf_path)
+    summary = extract_content_from_pdf("uploads")
+    print(summary)
+    return summary
 
-# @app.route('/pdf-gen', methods=['POST'])
-# def index():
-#         data = request.form
-#         topic = data.get('topic')
-#         pdf = request.files.get('pdf')
-#         print(topic, pdf)
-        
-#         # Assuming video_details is a dictionary with the expected keys
-#         try:
-#             video_details = generate_video(topic, pdf, flavor, description, description_url)
-#             return jsonify({"success": True, "video_path": video_details})
-#         except Exception as e:
-#             return jsonify({"success": False, "error": str(e)})
+
+@app.route("/", methods=["POST"])
+def index():
+    data = request.form
+    topic = data.get("topic")
+    flavor = data.get("flavor")
+    description = data.get("description")
+    description_url = data.get("description_url")
+    pdf = request.files.get("pdf")
+    print(topic, flavor, description, description_url, pdf)
+
+    # Assuming video_details is a dictionary with the expected keys
+    try:
+        video_details = generate_video(
+            topic, pdf, flavor, description, description_url, 0
+        )
+        return jsonify({"success": True, "video_path": video_details})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/pdf", methods=["POST"])
+def pdfFunction():
+    data = request.form
+    topic = data.get("topic")
+    pdf = request.files.get("pdf")
+    # flavor = data.get('flavor')
+    print(topic, pdf)
+    # Assuming video_details is a dictionary with the expected keys
+    try:
+        video_details = generate_video(topic, pdf, "Informational", None, None, 1)
+        return jsonify({"success": True, "video_path": video_details})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 
 def save_image_from_url(image_url, save_path):
@@ -81,7 +97,7 @@ def save_image_from_url(image_url, save_path):
     # Check if the request was successful
     if response.status_code == 200:
         # Write the content of the response to a file
-        with open(save_path, 'wb') as file:
+        with open(save_path, "wb") as file:
             file.write(response.content)
         print(f"Image saved to {save_path}")
     else:
@@ -92,24 +108,29 @@ def save_image_from_url(image_url, save_path):
 def evaluate_story(story):
     pass
 
+
 def therapeutic_voice_over(voice_over):
     response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", 
-             "content": """
+            {
+                "role": "system",
+                "content": """
                 You are a mental health professional specializing in therapeutic communication.
                 When provided with a voice over script, you task is to rewrite it in a more therapeutic tone.
                 Rewriting doesn't mean changing the script, but adding punctuations so that when the script converted to audio, it sounds more therapeutic.
-                """
-                 },
-            {"role": "user", "content": f"Create a therapeutic version of this voice over script in single quotes-  '{voice_over}'"}
+                """,
+            },
+            {
+                "role": "user",
+                "content": f"Create a therapeutic version of this voice over script in single quotes-  '{voice_over}'",
+            },
         ],
         temperature=0.8,
         max_tokens=100,  # Adjusted max_tokens to allow a more detailed response
         top_p=1,
     )
-  
+
     print(response.choices[0].message.content)
     return response.choices[0].message.content
 
@@ -117,7 +138,7 @@ def therapeutic_voice_over(voice_over):
 def generate_caption_prompt(image_description, caption, call_to_action=None):
     """
     Generate a detailed prompt for an AI to add a caption to an image.
-    
+
     :param image_description: A string describing the image content and style.
     :param caption: A string containing the main caption to add to the image.
     :param call_to_action: Optional; a string containing a call to action.
@@ -132,15 +153,19 @@ def generate_caption_prompt(image_description, caption, call_to_action=None):
     print(prompt)
 
     """
-    
+
     # Start with describing the image and the desired placement of the caption
     prompt = f"Edit the image which is {image_description}, to include a caption. "
 
     # Add details about the main caption
     prompt += f"Overlay the caption '{caption}' in a prominent place on the image "
-    prompt += "using a semi-transparent text box. The font should be clear and legible, "
+    prompt += (
+        "using a semi-transparent text box. The font should be clear and legible, "
+    )
     prompt += "complementing the overall aesthetic of the image."
-    prompt += "The text should be large enough to read easily but not overwhelm the image."
+    prompt += (
+        "The text should be large enough to read easily but not overwhelm the image."
+    )
     prompt += "Other than the given caption '{caption}', no other text should be present on the image."
 
     # If a call to action is provided, add that to the prompt
@@ -153,6 +178,7 @@ def generate_caption_prompt(image_description, caption, call_to_action=None):
 
 # Function to fetch description from a url
 
+
 def fetch_description_from_url(url):
     try:
         response = requests.get(url)
@@ -161,10 +187,11 @@ def fetch_description_from_url(url):
     except requests.RequestException as e:
         print(f"An error occurred while fetching the description: {e}")
         return None
-    
 
 
-def generate_story_prompts(topic, flavor, space=None, description=None, description_url=None):
+def generate_story_prompts(
+    topic, flavor, space=None, description=None, description_url=None
+):
     system_prompt = ""
     base_prompt = f"""
                 You are a marketing genius specializing in the {space} space, tasked with creating video ideas for short videos, when given a topic/description and a flavor by the user.
@@ -192,7 +219,7 @@ def generate_story_prompts(topic, flavor, space=None, description=None, descript
         fetched_description = fetch_description_from_url(description_url)
         if fetched_description:
             description = fetched_description
-    
+
     # Insert description into the base prompt if provided through description or description_url
     if description:
         user_prompt = user_prompt.replace("[Description]", "Video Description")
@@ -201,23 +228,17 @@ def generate_story_prompts(topic, flavor, space=None, description=None, descript
         user_prompt = user_prompt.replace("[Topic]", "Video Topic")
         user_prompt = user_prompt.replace("[topic]", topic)
 
-
-
-
     flavor_content = {
         "Meme": "The video should be crafted in a humorous style, mimicking the format of popular internet memes to engage the audience.",
         "Advanced Insights": "The video should provide deep insights suitable for advanced users, including technical details and professional analysis.",
         "Warning": "The video should have a strong impact, presenting the information with a shock value to grab the audience's attention immediately.",
-        "Informational" : "The video should be informative and educational, presenting the topic in a clear and concise manner suitable for a general audience.",
-        "Psychoeducation" : "The video should focus on psychoeducational content, providing valuable insights and practical tips for mental health management.",
-        "Shock Value" : "The video should be designed to evoke strong emotions and create a lasting impact on the viewer through shocking visuals and narratives.",
-        "Virality" : "The video should be crafted with the intention of going viral, incorporating elements that resonate with a wide audience and encourage sharing.",
-        "Negative News" : "The video should highlight negative aspects of the topic, presenting a critical view to raise awareness and spark discussions.",
-        "Positive News" : "The video should focus on positive news and uplifting stories related to the topic, inspiring hope and optimism in the viewers.",
+        "Informational": "The video should be informative and educational, presenting the topic in a clear and concise manner suitable for a general audience.",
+        "Psychoeducation": "The video should focus on psychoeducational content, providing valuable insights and practical tips for mental health management.",
+        "Shock Value": "The video should be designed to evoke strong emotions and create a lasting impact on the viewer through shocking visuals and narratives.",
+        "Virality": "The video should be crafted with the intention of going viral, incorporating elements that resonate with a wide audience and encourage sharing.",
+        "Negative News": "The video should highlight negative aspects of the topic, presenting a critical view to raise awareness and spark discussions.",
+        "Positive News": "The video should focus on positive news and uplifting stories related to the topic, inspiring hope and optimism in the viewers.",
     }
-    
-        
-
 
     # Insert flavor-specific content into the base prompt
     user_prompt = user_prompt.replace("[flavor]", "Educational")
@@ -227,22 +248,20 @@ def generate_story_prompts(topic, flavor, space=None, description=None, descript
     return system_prompt, user_prompt
 
 
-
-def generate_story(system_prompt,user_prompt):
-
+def generate_story(system_prompt, user_prompt):
     response = client.chat.completions.create(
         model="gpt-4",
-        messages=[ {"role": "system", "content": system_prompt }, 
-                    {"role": "user", "content": user_prompt}
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
         ],
         temperature=0.8,
         max_tokens=1500,  # Adjusted max_tokens to allow a more detailed response
         top_p=1,
     )
-  
+
     print(response.choices[0].message.content)
     return response.choices[0].message.content
-
 
 
 def generate_story_old(topic, flavor):
@@ -250,8 +269,9 @@ def generate_story_old(topic, flavor):
     response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", 
-             "content": """
+            {
+                "role": "system",
+                "content": """
                 You are marketing genius in the mental health space that can create video ideas for short videos provided topic and flavor. 
                 You make sure that the video can be created with 4-5 images where every image is played for 2-5 seconds. In your response you can give an entire direction for the video. The direction can consist of kind of images being played scene by scene to make an impact and what information can be overlayed as caption on the image and what information can be spoken in voice over. You can also give a title and description of the video.
                 
@@ -282,15 +302,18 @@ def generate_story_old(topic, flavor):
                 The image prompts must contain the image styling information and the prompt for the image. The prompt should be detailed enough to generate a good image.
 
                 Please double check the prompt before submitting. It should contain all the information needed to generate the image and the style of the image. All the styles should be consistent across all images.
-                """
+                """,
             },
-            {"role": "user", "content": f"Create a short video idea for the topic {topic} and flavor is {flavor}."}
+            {
+                "role": "user",
+                "content": f"Create a short video idea for the topic {topic} and flavor is {flavor}.",
+            },
         ],
         temperature=0.8,
         max_tokens=1500,  # Adjusted max_tokens to allow a more detailed response
         top_p=1,
     )
-  
+
     print(response.choices[0].message.content)
     return response.choices[0].message.content
 
@@ -299,8 +322,9 @@ def story_json(story):
     response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", 
-             "content": """
+            {
+                "role": "system",
+                "content": """
                 Given a story, you need to create a json object for the story.
                 The json object should contain the following
                     {   "story_title" : "Title of the story",
@@ -315,160 +339,228 @@ def story_json(story):
                         }
                 The json should be valid and it should follow the above structure always.
                 Think before answering and validate the answer before submitting.
-                """
+                """,
             },
-            {"role": "user", "content": f"Create a json for the story {story}."}
+            {"role": "user", "content": f"Create a json for the story {story}."},
         ],
         temperature=0.8,
         max_tokens=1500,  # Adjusted max_tokens to allow a more detailed response
         top_p=1,
     )
-  
+
     return response.choices[0].message.content
+
 
 def generate_story_json(system_prompt, user_prompt):
     story = generate_story(system_prompt, user_prompt)
-    story =  json.loads(story_json(story))
+    story = json.loads(story_json(story))
     print(story)
     return story
 
 
 def text_to_speech(text, story_title):
     response = client.audio.speech.create(
-    model="tts-1",
-    voice="nova",
-    input=text,
-)
+        model="tts-1",
+        voice="nova",
+        input=text,
+    )
 
     response.stream_to_file(f"sounds/{story_title}_audio.mp3")
     return f"sounds/{story_title}_audio.mp3"
 
-    
 
 def create_main_image(image_prompt):
     response = client.images.generate(
-    model="dall-e-3",
-    prompt=image_prompt,
-    size="1024x1024",
-    quality="standard",
-    n=1,
+        model="dall-e-3",
+        prompt=image_prompt,
+        size="1024x1024",
+        quality="standard",
+        n=1,
     )
 
     image_url = response.data[0].url
     print(image_url)
     return image_url
 
-def generate_video(topic, pdf, flavor, description=None, description_url=None):
-    pdf_path = None
-    if allowed_file(pdf.filename):
-            filename = secure_filename(pdf.filename)
-            if not os.path.exists(app.config['UPLOAD_FOLDER']):
-                os.makedirs(app.config['UPLOAD_FOLDER'])
-            pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            pdf.save(pdf_path)
-    if pdf_path:
-        summary = fetch_summary(pdf_path)
-        print(summary)
-    # Generate story prompts and details based on the summary
-    print(summary)
-    system_prompt, user_prompt = generate_story_prompts(topic, flavor, "Mental health", str(description or summary), description_url)
-    story = generate_story_json(system_prompt, user_prompt)
+
+def generate_video(
+    topic, pdf, flavor, description=None, description_url=None, num=None
+):
+    if num == 0:
+        system_prompt, user_prompt = generate_story_prompts(
+            topic, flavor, "Mental health", str(description or summary), description_url
+        )
+        story = generate_story_json(system_prompt, user_prompt)
+    else:
+        test_pdf_path = "data/psyco.pdf"
+        # title = "WHAT IS THIS THING CALLED PSYCHOLOGY?"
+        # description= extract_content_from_pdf("data", f"Provide a 200 words description for: {title} from the pdf")
+        # print(description)
+        # flavor = "Informational"
+        # system_prompt, user_prompt = generate_story_prompts(title, flavor, "Mental health", str(description))
+        # story = extract_content_from_pdf("data", f"Generate a story based on the {system_prompt} and {user_prompt} from the pdf")
+        # story =  json.loads(story_json(story))
+        # print(story)
     # raise ValueError("Story JSON is not generated yet.")
 
-#     story = {
-#     "story_title": topic,
-#     "story_description": "This video explores how Cognitive Behavioral Therapy (CBT) can be an e ective tool for managing symptoms of Attention Deficit Hyperactivity Disorder (ADHD). Through simple explanations and illustrative examples, viewers will learn how CBT techniques can be tailored to help individuals with ADHD enhance their focus, organization, and coping strategies.",
-#     "complete_voice_over": "In a world where focus seems elusive and attention wanders, managing ADHD can feel like an uphill battle. But what if there's a way to navigate through it effectively? Enter Cognitive Behavioral Therapy, or CBT. This therapy doesn't just aim to understand your challenges; it equips you with practical tools to reshape your responses and reclaim your focus. Let's explore how CBT can make a difference.",
-#     "scenes": [
-#         {
-#             "image_prompt": "Illustration of a diverse classroom setting with a child struggling to focus while other kids are engaged, in a colorful, cartoon style.",
-#             "caption": "Struggling with focus? You're not alone.",
-#             "voice_over": "ADHD affects many, making focus and attention challenging. But, what if there's a way to manage it effectively?"
-#         },
-#         {
-#             "image_prompt": "Warm and inviting therapy room with a therapist and a young patient discussing over CBT tools like journals and emotion cards, in a realistic style.",
-#             "caption": "Discover Cognitive Behavioral Therapy.",
-#             "voice_over": "Cognitive Behavioral Therapy, or CBT, is a type of therapy that helps manage your responses by changing thought and behavior patterns."
-#         },
-#         {
-#             "image_prompt": "Animated diagram showing a cycle of thoughts, emotions, and behaviors with arrows indicating changes through CBT techniques, in an informative and clean design.",
-#             "caption": "CBT Techniques Tailored for ADHD.",
-#             "voice_over": "Techniques like mindfulness, organization skills, and thought restructuring can be incredibly beneficial for those with ADHD."
-#         },
-#         {
-#             "image_prompt": "Split-screen digital illustration showing an individual before and after using CBT techniques, transitioning from disorganized to organized, and from distracted to focused, in a vibrant style.",
-#             "caption": "Real Success Stories.",
-#             "voice_over": "Meet those who've transformed their lives with CBT. From chaos to clarity, see the difference it makes."
-#         },
-#         {
-#             "image_prompt": "Digital painting of a cozy therapy consultation room with a welcoming atmosphere, subtle contact details visible, in a comforting and realistic style.",
-#             "caption": "Begin Your Journey Today.",
-#             "voice_over": "Interested in exploring how CBT can help with ADHD? Contact a professional to get started on your personalized therapy plan."
-#         }
-#     ]
-# }
+    #     story = {
+    #     "story_title": topic,
+    #     "story_description": "This video explores how Cognitive Behavioral Therapy (CBT) can be an e ective tool for managing symptoms of Attention Deficit Hyperactivity Disorder (ADHD). Through simple explanations and illustrative examples, viewers will learn how CBT techniques can be tailored to help individuals with ADHD enhance their focus, organization, and coping strategies.",
+    #     "complete_voice_over": "In a world where focus seems elusive and attention wanders, managing ADHD can feel like an uphill battle. But what if there's a way to navigate through it effectively? Enter Cognitive Behavioral Therapy, or CBT. This therapy doesn't just aim to understand your challenges; it equips you with practical tools to reshape your responses and reclaim your focus. Let's explore how CBT can make a difference.",
+    #     "scenes": [
+    #         {
+    #             "image_prompt": "Illustration of a diverse classroom setting with a child struggling to focus while other kids are engaged, in a colorful, cartoon style.",
+    #             "caption": "Struggling with focus? You're not alone.",
+    #             "voice_over": "ADHD affects many, making focus and attention challenging. But, what if there's a way to manage it effectively?"
+    #         },
+    #         {
+    #             "image_prompt": "Warm and inviting therapy room with a therapist and a young patient discussing over CBT tools like journals and emotion cards, in a realistic style.",
+    #             "caption": "Discover Cognitive Behavioral Therapy.",
+    #             "voice_over": "Cognitive Behavioral Therapy, or CBT, is a type of therapy that helps manage your responses by changing thought and behavior patterns."
+    #         },
+    #         {
+    #             "image_prompt": "Animated diagram showing a cycle of thoughts, emotions, and behaviors with arrows indicating changes through CBT techniques, in an informative and clean design.",
+    #             "caption": "CBT Techniques Tailored for ADHD.",
+    #             "voice_over": "Techniques like mindfulness, organization skills, and thought restructuring can be incredibly beneficial for those with ADHD."
+    #         },
+    #         {
+    #             "image_prompt": "Split-screen digital illustration showing an individual before and after using CBT techniques, transitioning from disorganized to organized, and from distracted to focused, in a vibrant style.",
+    #             "caption": "Real Success Stories.",
+    #             "voice_over": "Meet those who've transformed their lives with CBT. From chaos to clarity, see the difference it makes."
+    #         },
+    #         {
+    #             "image_prompt": "Digital painting of a cozy therapy consultation room with a welcoming atmosphere, subtle contact details visible, in a comforting and realistic style.",
+    #             "caption": "Begin Your Journey Today.",
+    #             "voice_over": "Interested in exploring how CBT can help with ADHD? Contact a professional to get started on your personalized therapy plan."
+    #         }
+    #     ]
+    # }
 
+    story = {
+        "story_title": "The Evolution of Psychology as a Scientific Discipline",
+        "story_description": "Explore the fascinating journey of Psychology from its roots in philosophy to its establishment as a scientific discipline. Witness how varying theoretical perspectives and approaches have shaped the field, leading to evolving definitions and methodologies. Delve into the study of human behavior and mental processes, unraveling the complexities of the mind through engaging visuals and informative narration. Discover the unique relationship between psychologists and their subject matter, highlighting the use of cognitive processes to investigate human psychology. Navigate through the blurred boundaries between psychology and other disciplines like physiology, sociology, and anthropology, showcasing the interdisciplinary nature of the field. Learn about the origins of the term 'psychology' and its formal inception in 1879 with Wilhelm Wundt's groundbreaking psychological laboratory. Experience the historical shift towards empirical methods and controlled experimentation, marking a significant departure from its philosophical origins. Immerse yourself in the diverse topics within psychology, aiming to understand human behavior, cognition, emotions, and mental processes through the lens of scientific inquiry and observation.",
+        "complete_voice_over": "Explore the fascinating journey of Psychology from its roots in philosophy to its establishment as a scientific discipline. Witness how varying theoretical perspectives and approaches have shaped the field, leading to evolving definitions and methodologies. Delve into the study of human behavior and mental processes, unraveling the complexities of the mind through engaging visuals and informative narration. Discover the unique relationship between psychologists and their subject matter, highlighting the use of cognitive processes to investigate human psychology. Navigate through the blurred boundaries between psychology and other disciplines like physiology, sociology, and anthropology, showcasing the interdisciplinary nature of the field. Learn about the origins of the term 'psychology' and its formal inception in 1879 with Wilhelm Wundt's groundbreaking psychological laboratory. Experience the historical shift towards empirical methods and controlled experimentation, marking a significant departure from its philosophical origins. Immerse yourself in the diverse topics within psychology, aiming to understand human behavior, cognition, emotions, and mental processes through the lens of scientific inquiry and observation.",
+        "scenes": [
+            {
+                "image_prompt": "Image of ancient philosophers discussing the nature of the mind",
+                "caption": "Roots in Philosophy",
+                "voice_over": "Long ago, ancient philosophers pondered the mysteries of the mind, laying the groundwork for the future field of psychology.",
+            },
+            {
+                "image_prompt": "Image of Wilhelm Wundt conducting experiments in his psychological laboratory",
+                "caption": "Birth of Scientific Psychology",
+                "voice_over": "In 1879, Wilhelm Wundt established the first psychological laboratory, marking the formal inception of psychology as a scientific discipline.",
+            },
+            {
+                "image_prompt": "Image of modern research methods and technologies used in psychology",
+                "caption": "Empirical Methods and Controlled Experimentation",
+                "voice_over": "Psychology underwent a historical shift towards empirical methods and controlled experimentation, revolutionizing the study of human behavior and mental processes.",
+            },
+            {
+                "image_prompt": "Image showcasing interdisciplinary collaboration between psychology and other fields",
+                "caption": "Interdisciplinary Nature of Psychology",
+                "voice_over": "Psychology intertwines with disciplines like physiology, sociology, and anthropology, highlighting its interdisciplinary nature and diverse perspectives on human psychology.",
+            },
+        ],
+    }
 
-    
     # create a directory inside images folder with the name of story title if it doesn't exist
     if not os.path.exists(f"images/{story['story_title']}"):
         os.mkdir(f"images/{story['story_title']}")
     print(type(story))
-    #story = json.dumps(story)
+    # story = json.dumps(story)
     print(story)
-    #raise ValueError("Story JSON is not generated yet.")
+    # raise ValueError("Story JSON is not generated yet.")
     for key in story:
         print(key)
-    story_title = story['story_title']
-    story_description = story['story_description']
-    story_voice_over = story['complete_voice_over']
-    scenes = story['scenes']
-
-    images = []
-    i = 0 
-    for scene in scenes:
-        image_prompt = scene['image_prompt']
-        caption = scene['caption']
-        voice_over = scene['voice_over']
-        # For the last image, add cta of book session with us
-        if scene == scenes[-1]:
-            cta = "Book a session"
-        else :
-            cta = None
-        caption_prompt = generate_caption_prompt(image_prompt, caption, cta)
-        print(caption_prompt)
-        caption_image = create_main_image(caption_prompt)
-        save_image_from_url(caption_image, f"images/{story_title}/{i}.jpg")
-        i = i + 1
-        images.append(caption_image)
-        #raise ValueError("Image generation is not done yet.")
-
-    #print(images)    
-  
-    #clip = ImageSequenceClip(f"images/{story_title}/", durations=[3,3,3,3,3])  # Each image lasts 3 second
-    
- 
+    story_title = story["story_title"]
+    story_description = story["story_description"]
+    story_voice_over = story["complete_voice_over"]
+    scenes = story["scenes"]
+    print(story)
         
+
+    # images = []
+    clips = []
+    # i = 0
+    # for scene in scenes:
+    #     image_prompt = scene['image_prompt']
+    #     caption = scene['caption']
+    #     voice_over = scene['voice_over']
+    #     # For the last image, add cta of book session with us
+    #     if scene == scenes[-1]:
+    #         cta = "Book a session"
+    #     else :
+    #         cta = None
+    #     caption_prompt = generate_caption_prompt(image_prompt, caption, cta)
+    #     print(caption_prompt)
+    #     caption_image = create_main_image(caption_prompt)
+    #     save_image_from_url(caption_image, f"images/{story_title}/{i}.jpg")
+    #     i = i + 1
+    #     images.append(caption_image)
+    #     #raise ValueError("Image generation is not done yet.")
+
+    # print(images)
+
+    # clip = ImageSequenceClip(f"images/{story_title}/", durations=[3,3,3,3,3])  # Each image lasts 3 second
+    for i in range(5):
+        duration = 5000
+        fps = 30
+        output_filename = os.path.join("clips", f"{story_title}_{i}_video.mp4")
+        print(output_filename)
+        img = cv2.imread(f"images/{story_title}/{i}.jpg")
+        clip_edited = generate_clip(img, duration, fps, output_filename)
+        clips.append(clip_edited)
+        print(clips)
+
     # Change voice over to make it therapeutic
-    voice_over = therapeutic_voice_over(story_voice_over)
-    audio_path = text_to_speech(voice_over, story_title)
+    # voice_over = therapeutic_voice_over(story_voice_over)
+    audio_path = "sounds/The Evolution of Psychology as a Scientific Discipline_audio.mp3"
+    print(audio_path)
 
-    #calculate the duration of the audio
+    # calculate the duration of the audio
     audio_duration = AudioFileClip(audio_path).duration
-    durations_list = [audio_duration/5]*5
+    durations_list = [audio_duration / 5] * 5
 
-    clip = ImageSequenceClip(f"images/{story_title}/", durations=durations_list)
-    clip.write_videofile(f"videos/{story_title}_video.mp4", fps=1)
-    
-
+    # clip = ImageSequenceClip(f"images/{story_title}/", durations=durations_list)
+    # clip.write_videofile(f"videos/{story_title}_video.mp4", fps=1)
+    # clips = [VideoFileClip(clip) for clip in clips]  # Resize to 720p if necessary
+    # final_clip = concatenate_videoclips(clips, method="compose", padding=-1)
+    # print(final_clip)
+    def resize_frame(frame, width, height):
+        return cv2.resize(frame, (width, height))
+    # Assuming all clips have the same frame rate and similar properties
+    output_filename = "final_video.mp4"
+    cap = cv2.VideoCapture(clips[0])
+    if not cap.isOpened():
+        print("Error: Could not open video file.")
+        exit()
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    cap.release()
+    fps = 30  # frames per second
+    # Create a VideoWriter object
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # codec
+    out = cv2.VideoWriter(output_filename, fourcc, fps, (frame_width, frame_height))
+    for clip in clips:
+        cap = cv2.VideoCapture(clip)
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            resized_frame = resize_frame(frame, frame_width, frame_height)
+            out.write(resized_frame)
+        cap.release()
+    out.release()
+    final_video = VideoFileClip(output_filename)
+    audio_clip = AudioFileClip(audio_path)
+    final_clip = final_video.set_audio(audio_clip)
+    final_clip.write_videofile("final_with_audio.mp4")
+    print("runnnneddd")
     # Add audio to video using moviepy
-    video = clip
-    audio = AudioFileClip(audio_path)
-    final_video = CompositeVideoClip([video.set_audio(audio)])
-    final_video_path = f"videos/{story_title}_final_video.mp4"
-    final_video.write_videofile(final_video_path, codec='libx264' , fps=1)
-        
-    return final_video_path
+    return "final_with_audio.mp4"
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     app.run(debug=True)
